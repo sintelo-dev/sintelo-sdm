@@ -1,1 +1,24 @@
-
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "sqlServerName": {
+      "value": "sintelodbserver"
+    },
+    "administratorLogin": {
+      "value": "sqladmin-sintelo"
+    },
+    "administratorLoginPassword": {
+      "value": "S!nt3l0_DB#2025@"
+    },
+    "databaseName": {
+      "value": "sintelo-sdm-db"
+    },
+    "clientIp": {
+      "value": "187.190.170.61"
+    },
+    "vmIp": {
+      "value": "187.190.170.61"
+    }
+  }
+}
