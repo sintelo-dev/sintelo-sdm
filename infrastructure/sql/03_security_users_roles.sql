@@ -1,7 +1,8 @@
 /*
 ------------------------------------------------------------
 -- Sintelo SDM v1.2
--- Security Model & Institutional Roles
+-- Institutional Security Model (v1.1)
+-- Roles, Permissions & Governance
 -- Archivo: 03_security_users_roles.sql
 ------------------------------------------------------------
 */
@@ -10,103 +11,99 @@ SET NOCOUNT ON;
 GO
 
 ------------------------------------------------------------
--- 1. Creación de ROLES institucionales
+-- 1. CREACIÓN DE ROLES INSTITUCIONALES
 ------------------------------------------------------------
 
--- Rol con permisos mínimos de solo lectura sobre vistas
+-- Lectura mínima (para auditores, socios, observadores)
 IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_readonly')
     CREATE ROLE sintelo_readonly;
 GO
 
--- Rol para analistas internos de Sintelo (acceso a vistas + funciones)
+-- Analista de datos interno (T1 + T2)
 IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_analyst')
     CREATE ROLE sintelo_analyst;
 GO
 
--- Rol para Power BI (solo vistas T2)
-IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_powerbi_role')
-    CREATE ROLE sintelo_powerbi_role;
+-- Operador PE Sintelo (acceso a T1, T2, vistas operativas internas)
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_operator')
+    CREATE ROLE sintelo_operator;
+GO
+
+-- Administrador de datos institucional (NO DBA — control semántico)
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_data_admin')
+    CREATE ROLE sintelo_data_admin;
 GO
 
 
 ------------------------------------------------------------
--- 2. Usuarios institucionales
+-- 2. GOBERNANZA SOBRE TABLAS CRUDAS (schema dbo)
 ------------------------------------------------------------
 
--- Usuario de servicio para Power BI DirectQuery
-IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = 'sintelo_powerbi')
-BEGIN
-    CREATE LOGIN sintelo_powerbi WITH PASSWORD = 'CambiaEstaContraseña123!';
-END;
-GO
-
-CREATE USER sintelo_powerbi FOR LOGIN sintelo_powerbi;
-GO
-
-
--- Usuario analista (cuando contrates a tu primer BI Lead)
-IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = 'sintelo_analyst')
-BEGIN
-    CREATE LOGIN sintelo_analyst WITH PASSWORD = 'CambiaEstaContraseña123!';
-END;
-GO
-
-CREATE USER sintelo_analyst FOR LOGIN sintelo_analyst;
-GO
-
-
-------------------------------------------------------------
--- 3. Permisos por rol (mínimos necesarios)
-------------------------------------------------------------
-
--- Tablas crudas: NADIE tiene permisos directos excepto admin
--- Se hace explícito el DENY por política institucional
+-- Ningún rol institucional puede leer tablas base crudas
 REVOKE SELECT ON SCHEMA::dbo FROM PUBLIC;
-DENY SELECT ON SCHEMA::dbo TO sintelo_powerbi_role;
+GO
+
+-- Solo el admin SQL puede leer/modificar tablas crudas
 DENY SELECT ON SCHEMA::dbo TO sintelo_readonly;
 DENY SELECT ON SCHEMA::dbo TO sintelo_analyst;
+DENY SELECT ON SCHEMA::dbo TO sintelo_operator;
 GO
 
+-- Data Admin puede leer tablas crudas para validación estructural
+GRANT SELECT ON SCHEMA::dbo TO sintelo_data_admin;
+GO
+
+
 ------------------------------------------------------------
--- 4. Asignación de permisos sobre VISTAS
+-- 3. PERMISOS SOBRE VISTAS T1 (Transformación Cruda → Limpia)
 ------------------------------------------------------------
 
--- Vistas T1 (transformación cruda → limpia)
+-- Analista yes
 GRANT SELECT ON SCHEMA::dbo TO sintelo_analyst;
-GRANT SELECT ON SCHEMA::dbo TO sintelo_readonly;
 
--- Power BI NO accede a vistas T1, solo T2
--- Así evitamos que reporte datos inconsistentes.
+-- Operator yes
+GRANT SELECT ON SCHEMA::dbo TO sintelo_operator;
+
+-- Readonly NO (solo vistas finales)
+DENY SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_readonly;
 GO
 
--- Vistas T2 (modelo PE-ready: Revenue/COGS/OPEX/EBITDA)
-GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_powerbi_role;
-GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_analyst;
+
+------------------------------------------------------------
+-- 4. PERMISOS SOBRE VISTAS T2 (Modelo PE-Ready: Revenue, COGS, OPEX, EBITDA)
+------------------------------------------------------------
+
+-- Estos son los datos que van a Power BI en el futuro
+
 GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_readonly;
-GO
-
--- Vistas GL (si deseas habilitar para analista)
-GRANT SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_analyst;
-GO
-
-
-------------------------------------------------------------
--- 5. Asignación de usuarios a roles
-------------------------------------------------------------
-
-EXEC sp_addrolemember 'sintelo_powerbi_role', 'sintelo_powerbi';
-EXEC sp_addrolemember 'sintelo_analyst',       'sintelo_analyst';
-EXEC sp_addrolemember 'sintelo_readonly',      'sintelo_analyst';   -- analista hereda readonly
-EXEC sp_addrolemember 'sintelo_readonly',      'sintelo_powerbi';   -- BI puede leer vistas permitidas
+GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_analyst;
+GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_operator;
 GO
 
 
 ------------------------------------------------------------
--- 6. Auditoría institucional Sintelo
+-- 5. PERMISOS PARA FUTUROS USUARIOS (cuando existan)
 ------------------------------------------------------------
 
--- Se documenta explícitamente que solo sqladmin-sintelo puede tocar tablas base
--- Esto sirve para auditorías futuras y gobernanza PE.
+-- Sintelo Operator
+-- EXEC sp_addrolemember 'sintelo_operator', 'user_x';
 
-PRINT 'Security model applied: Sintelo institutional roles created successfully.';
+-- Sintelo Analyst
+-- EXEC sp_addrolemember 'sintelo_analyst', 'user_y';
+
+-- Sintelo Readonly
+-- EXEC sp_addrolemember 'sintelo_readonly', 'external_auditor';
+
+-- Sintelo Data Admin
+-- EXEC sp_addrolemember 'sintelo_data_admin', 'your_future_data_admin';
+GO
+
+
+------------------------------------------------------------
+-- 6. AUDITORÍA INSTITUCIONAL SINTelo (gobernanza PE-first)
+------------------------------------------------------------
+
+PRINT 'Sintelo Security Model v1.1 aplicado correctamente.';
+PRINT 'Roles creados: readonly, analyst, operator, data_admin.';
+PRINT 'Tablas crudas protegidas. Vistas T1/T2 habilitadas.';
 GO
