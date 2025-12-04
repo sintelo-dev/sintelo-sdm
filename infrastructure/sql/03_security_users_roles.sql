@@ -1,8 +1,8 @@
 /*
 ------------------------------------------------------------
 -- Sintelo SDM v1.2
--- Institutional Security Model (v1.1)
--- Roles, Permissions & Governance
+-- Institutional Security Model (v1.2)
+-- Roles, Users, Permissions & Governance
 -- Archivo: 03_security_users_roles.sql
 ------------------------------------------------------------
 */
@@ -34,76 +34,146 @@ IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_data_
     CREATE ROLE sintelo_data_admin;
 GO
 
+-- Rol técnico para conexiones de Power BI (DirectQuery / servicio)
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_powerbi_role')
+    CREATE ROLE sintelo_powerbi_role;
+GO
+
 
 ------------------------------------------------------------
--- 2. GOBERNANZA SOBRE TABLAS CRUDAS (schema dbo)
+-- 2. LOGINS DE SERVIDOR (MVP DEV ONLY)
+--    TODO v2: mover a Azure AD / secretos gestionados
 ------------------------------------------------------------
 
--- Ningún rol institucional puede leer tablas base crudas
+IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = 'sintelo_powerbi')
+BEGIN
+    CREATE LOGIN sintelo_powerbi 
+        WITH PASSWORD = 'S1nt3l0-PBI!2025#';
+END;
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.sql_logins WHERE name = 'sintelo_analyst')
+BEGIN
+    CREATE LOGIN sintelo_analyst 
+        WITH PASSWORD = 'S1nt3l0-Analyst!2025#';
+END;
+GO
+
+
+------------------------------------------------------------
+-- 3. USERS EN LA BASE DE DATOS (MAPPED A LOS LOGINS)
+------------------------------------------------------------
+
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_powerbi')
+    CREATE USER sintelo_powerbi FOR LOGIN sintelo_powerbi;
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sintelo_analyst')
+    CREATE USER sintelo_analyst FOR LOGIN sintelo_analyst;
+GO
+
+
+------------------------------------------------------------
+-- 4. GOBERNANZA SOBRE SCHEMA dbo (TABLAS CRUDAS)
+------------------------------------------------------------
+
+-- Limpieza: quitar cualquier permiso previo explícito en dbo para evitar drift
 REVOKE SELECT ON SCHEMA::dbo FROM PUBLIC;
+REVOKE SELECT ON SCHEMA::dbo FROM sintelo_readonly;
+REVOKE SELECT ON SCHEMA::dbo FROM sintelo_analyst;
+REVOKE SELECT ON SCHEMA::dbo FROM sintelo_operator;
+REVOKE SELECT ON SCHEMA::dbo FROM sintelo_powerbi_role;
+REVOKE SELECT ON SCHEMA::dbo FROM sintelo_data_admin;
 GO
 
--- Solo el admin SQL puede leer/modificar tablas crudas
-DENY SELECT ON SCHEMA::dbo TO sintelo_readonly;
-DENY SELECT ON SCHEMA::dbo TO sintelo_analyst;
-DENY SELECT ON SCHEMA::dbo TO sintelo_operator;
-GO
-
--- Data Admin puede leer tablas crudas para validación estructural
+-- Solo sintelo_data_admin puede leer TODO el schema dbo (tablas + vistas)
 GRANT SELECT ON SCHEMA::dbo TO sintelo_data_admin;
 GO
 
 
 ------------------------------------------------------------
--- 3. PERMISOS SOBRE VISTAS T1 (Transformación Cruda → Limpia)
+-- 5. PERMISOS SOBRE VISTAS T1 (GL LIMPIO)
+--    Detalle contable – solo para operación interna
 ------------------------------------------------------------
 
--- Analista yes
-GRANT SELECT ON SCHEMA::dbo TO sintelo_analyst;
+-- GL limpio: solo analista, operador y data_admin
+GRANT SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_analyst;
+GRANT SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_operator;
+GRANT SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_data_admin;
 
--- Operator yes
-GRANT SELECT ON SCHEMA::dbo TO sintelo_operator;
-
--- Readonly NO (solo vistas finales)
-DENY SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_readonly;
+-- Readonly y Power BI NO ven el GL a este nivel de detalle
+DENY  SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_readonly;
+DENY  SELECT ON dbo.v_Sintelo_GL_T1 TO sintelo_powerbi_role;
 GO
 
 
 ------------------------------------------------------------
--- 4. PERMISOS SOBRE VISTAS T2 (Modelo PE-Ready: Revenue, COGS, OPEX, EBITDA)
+-- 6. PERMISOS SOBRE VISTAS T2 (PE-READY: P&L NORMALIZADO)
 ------------------------------------------------------------
 
--- Estos son los datos que van a Power BI en el futuro
-
+-- v_Sintelo_PnL_T2 es la vista institucional PE-ready
 GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_readonly;
 GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_analyst;
 GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_operator;
+GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_data_admin;
+GRANT SELECT ON dbo.v_Sintelo_PnL_T2 TO sintelo_powerbi_role;
 GO
 
 
 ------------------------------------------------------------
--- 5. PERMISOS PARA FUTUROS USUARIOS (cuando existan)
+-- 7. ASIGNACIÓN DE USUARIOS A ROLES (IDEMPOTENTE)
 ------------------------------------------------------------
 
--- Sintelo Operator
--- EXEC sp_addrolemember 'sintelo_operator', 'user_x';
+-- Helper genérico para no romper si ya existe la membresía
+-- (patrón: solo agregar si no existe)
 
--- Sintelo Analyst
--- EXEC sp_addrolemember 'sintelo_analyst', 'user_y';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.database_role_members drm
+    JOIN sys.database_principals rp ON drm.role_principal_id = rp.principal_id
+    JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+    WHERE rp.name = 'sintelo_powerbi_role'
+      AND dp.name = 'sintelo_powerbi'
+)
+BEGIN
+    EXEC sp_addrolemember 'sintelo_powerbi_role', 'sintelo_powerbi';
+END;
+GO
 
--- Sintelo Readonly
--- EXEC sp_addrolemember 'sintelo_readonly', 'external_auditor';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.database_role_members drm
+    JOIN sys.database_principals rp ON drm.role_principal_id = rp.principal_id
+    JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+    WHERE rp.name = 'sintelo_analyst'
+      AND dp.name = 'sintelo_analyst'
+)
+BEGIN
+    EXEC sp_addrolemember 'sintelo_analyst', 'sintelo_analyst';
+END;
+GO
 
--- Sintelo Data Admin
--- EXEC sp_addrolemember 'sintelo_data_admin', 'your_future_data_admin';
+-- El analista hereda readonly para vistas finales
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.database_role_members drm
+    JOIN sys.database_principals rp ON drm.role_principal_id = rp.principal_id
+    JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+    WHERE rp.name = 'sintelo_readonly'
+      AND dp.name = 'sintelo_analyst'
+)
+BEGIN
+    EXEC sp_addrolemember 'sintelo_readonly', 'sintelo_analyst';
+END;
 GO
 
 
 ------------------------------------------------------------
--- 6. AUDITORÍA INSTITUCIONAL SINTelo (gobernanza PE-first)
+-- 8. AUDITORÍA INSTITUCIONAL SINTelo (gobernanza PE-first)
 ------------------------------------------------------------
 
-PRINT 'Sintelo Security Model v1.1 aplicado correctamente.';
-PRINT 'Roles creados: readonly, analyst, operator, data_admin.';
-PRINT 'Tablas crudas protegidas. Vistas T1/T2 habilitadas.';
+PRINT 'Sintelo Security Model v1.2 aplicado correctamente.';
+PRINT 'Roles: readonly, analyst, operator, data_admin, powerbi_role.';
+PRINT 'Logins: sintelo_powerbi, sintelo_analyst (MVP dev).';
+PRINT 'Tablas crudas protegidas. Vistas T1/T2 gobernadas por rol.';
 GO
