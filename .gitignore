@@ -1,0 +1,5 @@
+.venv/
+samples/
+*.pyc
+__pycache__/
+sintelo-sdm/

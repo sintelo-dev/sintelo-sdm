@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import pyodbc
 from azure.storage.blob import BlobServiceClient
+from io import StringIO
 
 # -------------------------
 # 1. Configuración
@@ -37,7 +38,7 @@ def load_blob_csv():
     blob = blob_client.get_blob_client(container=CONTAINER, blob=FILE_NAME)
 
     data = blob.download_blob().content_as_text()
-    df = pd.read_csv(pd.compat.StringIO(data))
+    df = pd.read_csv(StringIO(data))
 
     print(f"[OK] Archivo {FILE_NAME} cargado desde Blob: {len(df)} filas")
     return df
@@ -51,17 +52,27 @@ def load_to_sql(df):
 
     cursor.execute(f"TRUNCATE TABLE {TARGET_TABLE}")
 
+    # Orden institucional de columnas
+    columns = [
+        "CustomerID", "NameStyle", "Title", "FirstName", "MiddleName", "LastName",
+        "Suffix", "CompanyName", "SalesPerson", "EmailAddress", "Phone",
+        "PasswordHash", "PasswordSalt", "rowguid", "ModifiedDate"
+    ]
+
+    # Reordenar columnas
+    df = df[columns]
+
+    # Construcción dinámica del INSERT
     insert_sql = f"""
     INSERT INTO {TARGET_TABLE} (
-        CustomerID, NameStyle, Title, FirstName, MiddleName, LastName,
-        Suffix, CompanyName, SalesPerson, EmailAddress, Phone,
-        PasswordHash, PasswordSalt, rowguid, ModifiedDate
-    )
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        {",".join(columns)}
+    ) VALUES ({",".join(['?' for _ in columns])})
     """
 
+    # Insertar filas
     for _, row in df.iterrows():
-        cursor.execute(insert_sql, tuple(row))
+        values = [None if pd.isna(v) else v for v in row.values]
+        cursor.execute(insert_sql, values)
 
     conn.commit()
     cursor.close()
