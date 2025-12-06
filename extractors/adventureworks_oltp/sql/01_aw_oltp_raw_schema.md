@@ -14,3 +14,11 @@ Este documento describe las tablas que serán ingeridas en la zona RAW del Lakeh
 ## Naming convention institucional
 
 Destino en OneLake:
+/Tables/raw/customer
+/Tables/raw/product
+/Tables/raw/sales_order_header
+/Tables/raw/sales_order_detail
+
+Formato: **Delta Lake**  
+Modo de carga: **Append + Incremental (ModifiedDate)**  
+Clave incremental: `ModifiedDate`
