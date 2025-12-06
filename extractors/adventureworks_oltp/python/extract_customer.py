@@ -1,87 +1,116 @@
 """
-Extractor Sintelo – AdventureWorksLT2025 (Demo Cliente)
-Carga Customer desde Azure Blob → Azure SQL (raw_awlt.Customer)
+Extractor Sintelo – OLTP → OneLake Bronze
+Tabla: Sales.Customer (AdventureWorks OLTP)
+Cliente: 9001 – AW Manufacturing Demo
+
+Este extractor lee directamente del SQL OLTP y deposita el resultado crudo
+en el OneLake institucional, estructura Bronze.
 """
 
 import os
 import pandas as pd
 import pyodbc
-from azure.storage.blob import BlobServiceClient
-from io import StringIO
+import json
+from datetime import datetime
 
-# -------------------------
-# 1. Configuración
-# -------------------------
+# ============================================================
+# CONFIGURACIÓN INSTITUCIONAL
+# ============================================================
 
-AZURE_STORAGE_CONNECTION_STRING = os.getenv("SINTEL0_STORAGE_CONNECTION")
-CONTAINER = "raw"
-FILE_NAME = "Customer.csv"
+# Conexión SQL OLTP
+SQL_SERVER = "sintelodbserver.database.windows.net"
+SQL_DB = "AdventureWorks2022"   # OLTP real
+SQL_USER = "sqladmin-sintelo"
+SQL_PASSWORD = os.getenv("SINTEL0_SQL_ADMIN")  # exportado en tu shell
 
-SQL_CONN = (
-    "Driver={ODBC Driver 18 for SQL Server};"
-    "Server=tcp:sintelodbserver.database.windows.net,1433;"
-    "Database=AdventureWorksLT2025_Sample;"
-    "Uid=sqladmin-sintelo;"
-    f"Pwd={os.getenv('SINTEL0_SQL_ADMIN')};"
-    "Encrypt=yes;TrustServerCertificate=no;"
-)
+# Tabla fuente OLTP
+SOURCE_TABLE = "Sales.Customer"
 
-TARGET_TABLE = "raw_awlt.Customer"
+# Path Bronze institucional
+BRONZE_BASE = "one_lake/bronze/erp/9001_aw_manufacturing/customer/"
 
-# -------------------------
-# 2. Descargar CSV desde Blob
-# -------------------------
-def load_blob_csv():
-    blob_client = BlobServiceClient.from_connection_string(
-        AZURE_STORAGE_CONNECTION_STRING
+# Metadata path
+METADATA_BASE = "one_lake/bronze/erp/9001_aw_manufacturing/_metadata/"
+
+# Timestamp institucional
+ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+
+# ============================================================
+# 1. Conectar a SQL OLTP
+# ============================================================
+def get_sql_connection():
+    conn_str = (
+        f"Driver={{ODBC Driver 18 for SQL Server}};"
+        f"Server=tcp:{SQL_SERVER},1433;"
+        f"Database={SQL_DB};"
+        f"UID={SQL_USER};"
+        f"PWD={SQL_PASSWORD};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=no;"
+        "Connection Timeout=30;"
     )
-    blob = blob_client.get_blob_client(container=CONTAINER, blob=FILE_NAME)
+    return pyodbc.connect(conn_str)
 
-    data = blob.download_blob().content_as_text()
-    df = pd.read_csv(StringIO(data))
 
-    print(f"[OK] Archivo {FILE_NAME} cargado desde Blob: {len(df)} filas")
-    return df
+# ============================================================
+# 2. Leer datos desde OLTP
+# ============================================================
+def extract_customer_from_oltp():
+    query = f"SELECT * FROM {SOURCE_TABLE};"
+    print(f"[EXTRACT] Ejecutando query OLTP → {SOURCE_TABLE}")
 
-# -------------------------
-# 3. Cargar a SQL (truncate + insert)
-# -------------------------
-def load_to_sql(df):
-    conn = pyodbc.connect(SQL_CONN)
-    cursor = conn.cursor()
-
-    cursor.execute(f"TRUNCATE TABLE {TARGET_TABLE}")
-
-    # Orden institucional de columnas
-    columns = [
-        "CustomerID", "NameStyle", "Title", "FirstName", "MiddleName", "LastName",
-        "Suffix", "CompanyName", "SalesPerson", "EmailAddress", "Phone",
-        "PasswordHash", "PasswordSalt", "rowguid", "ModifiedDate"
-    ]
-
-    # Reordenar columnas
-    df = df[columns]
-
-    # Construcción dinámica del INSERT
-    insert_sql = f"""
-    INSERT INTO {TARGET_TABLE} (
-        {",".join(columns)}
-    ) VALUES ({",".join(['?' for _ in columns])})
-    """
-
-    # Insertar filas
-    for _, row in df.iterrows():
-        values = [None if pd.isna(v) else v for v in row.values]
-        cursor.execute(insert_sql, values)
-
-    conn.commit()
-    cursor.close()
+    conn = get_sql_connection()
+    df = pd.read_sql(query, conn)
     conn.close()
 
-    print(f"[OK] Datos insertados en {TARGET_TABLE}: {len(df)} registros")
+    print(f"[EXTRACT] Filas extraídas: {len(df)}")
+    return df
 
 
+# ============================================================
+# 3. Escribir en BRONZE como CSV crudo
+# ============================================================
+def write_to_bronze(df):
+    os.makedirs(BRONZE_BASE, exist_ok=True)
+
+    output_file = f"{BRONZE_BASE}{ts}.csv"
+    df.to_csv(output_file, index=False)
+
+    print(f"[BRONZE] Archivo generado: {output_file}")
+    return output_file
+
+
+# ============================================================
+# 4. Escribir metadata institucional
+# ============================================================
+def write_metadata(row_count, file_path):
+    os.makedirs(METADATA_BASE, exist_ok=True)
+
+    metadata = {
+        "table": SOURCE_TABLE,
+        "rows": row_count,
+        "file": file_path,
+        "timestamp_utc": ts,
+        "source": "AdventureWorks OLTP",
+        "layer": "bronze",
+        "ingested_by": "Sintelo Data Platform"
+    }
+
+    meta_file = f"{METADATA_BASE}customer_{ts}.json"
+
+    with open(meta_file, "w") as f:
+        json.dump(metadata, f, indent=4)
+
+    print(f"[METADATA] Metadata escrita: {meta_file}")
+
+
+# ============================================================
+# MAIN PIPELINE
+# ============================================================
 if __name__ == "__main__":
-    df = load_blob_csv()
-    load_to_sql(df)
-    print("[DONE] Extractor ejecutado correctamente.")
+    df = extract_customer_from_oltp()
+    file_path = write_to_bronze(df)
+    write_metadata(len(df), file_path)
+
+    print("\n[SUCCESS] ETL OLTP → BRONZE completado para Sales.Customer.")
