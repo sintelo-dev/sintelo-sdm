@@ -1,0 +1,12 @@
+{
+  "properties": {
+    "type": "AzureBlobFS",
+    "typeProperties": {
+      "url": "https://sintelolakecore.dfs.core.windows.net",
+      "accountKey": {
+        "type": "SecureString",
+        "value": "<AZURE_STORAGE_ACCOUNT_KEY>"
+      }
+    }
+  }
+}

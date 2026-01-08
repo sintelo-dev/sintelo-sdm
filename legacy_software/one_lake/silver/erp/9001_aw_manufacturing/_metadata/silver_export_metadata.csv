@@ -1,0 +1,2 @@
+layer,tables,source,client_code
+silver,"dim_item, dim_customer, dim_date, fact_sales_invoice, fact_stock_ledger, fact_workorders",AdventureWorks2019 → Modelo ERPNext Sintelo v1.0 (demo),9001_aw_manufacturing

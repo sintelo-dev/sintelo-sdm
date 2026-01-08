@@ -1,0 +1,10 @@
+schema,table,full_table_name,target_folder,file_path,rows,export_timestamp
+Sales,SalesOrderHeader,Sales.SalesOrderHeader,bronze_sales_order,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_sales_order/data.csv,31465,2025-12-19T10:42:22.228724
+Sales,SalesOrderDetail,Sales.SalesOrderDetail,bronze_sales_order_line,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_sales_order_line/data.csv,121317,2025-12-19T10:42:23.339513
+Sales,Customer,Sales.Customer,bronze_customer,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_customer/data.csv,19820,2025-12-19T10:42:23.528252
+Production,Product,Production.Product,bronze_product,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_product/data.csv,504,2025-12-19T10:42:23.539224
+Production,ProductCategory,Production.ProductCategory,bronze_product_category,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_product_category/data.csv,4,2025-12-19T10:42:23.540776
+Production,ProductSubcategory,Production.ProductSubcategory,bronze_product_subcategory,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_product_subcategory/data.csv,37,2025-12-19T10:42:23.542154
+Production,ProductInventory,Production.ProductInventory,bronze_product_inventory,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_product_inventory/data.csv,1069,2025-12-19T10:42:23.548105
+Purchasing,PurchaseOrderHeader,Purchasing.PurchaseOrderHeader,bronze_purchase_order,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_purchase_order/data.csv,4012,2025-12-19T10:42:23.597119
+Purchasing,PurchaseOrderDetail,Purchasing.PurchaseOrderDetail,bronze_purchase_order_line,/Users/jorgeprax/Documents/sintelo-sdm/extractors/one_lake/bronze/erp/9001_aw_manufacturing/bronze_purchase_order_line/data.csv,8845,2025-12-19T10:42:23.696633
